@@ -48,6 +48,34 @@ Click the **Options** button in the toolbar to access settings:
 - **Use local options file**: Check this to save `go_select.ini` in the application folder (useful for portable installations or managing multiple screenpacks).
 - **Make a backup before every save**: Ensures you never lose your configuration by creating timestamped backups in `data/GoSelect_Backups`.
 
+## Building Standalone Executable
+
+You can build a standalone Windows executable (no Python installation required):
+
+### Quick Build
+Simply run the included build script:
+```batch
+build.bat
+```
+
+### Manual Build
+1. Install build dependencies:
+   ```bash
+   pip install pyinstaller customtkinter
+   ```
+
+2. Run PyInstaller with the spec file:
+   ```bash
+   python -m PyInstaller GO_Select.spec --clean
+   ```
+
+3. The executable will be created at `dist/GO-Select.exe` (~13 MB)
+
+### Distribution
+The standalone `GO-Select.exe` can be distributed without Python. Users just need to:
+1. Place the EXE in their Ikemen GO/MUGEN game folder (or anywhere)
+2. Run it and point to their `system.def` when prompted
+
 ## License
 
 This project is open source. Feel free to modify and distribute.

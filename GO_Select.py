@@ -1,5 +1,6 @@
 import customtkinter as ctk
 import os
+import sys
 import shutil
 import datetime
 import re
@@ -447,7 +448,7 @@ class GOSelect(ctk.CTk):
              if not self.base_path or not os.path.exists(os.path.join(self.base_path, "data", "select.def")):
                  messagebox.showerror("Error", "Setup cancelled or invalid. Exiting.")
                  self.destroy()
-                 exit()
+                 sys.exit()
 
     def find_grid_dimensions(self):
         cfg_path = os.path.join(self.data_dir, "mugen.cfg")
