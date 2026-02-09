@@ -411,6 +411,13 @@ class GOSelect(ctk.CTk):
             val = self.config["Paths"]["MugenRoot"]
             if val and os.path.exists(val):
                 self.base_path = val
+        
+        # Also restore select_def_path if saved
+        if "Paths" in self.config and "SelectDef" in self.config["Paths"]:
+            val = self.config["Paths"]["SelectDef"]
+            if val and os.path.exists(val):
+                self.select_def_path = val
+                self.data_dir = os.path.dirname(val)
 
     def save_config(self):
         use_local = self.config.getboolean("Options", "UseLocal", fallback=True)
@@ -424,10 +431,44 @@ class GOSelect(ctk.CTk):
         
         if "Paths" not in self.config: self.config["Paths"] = {}
         if self.base_path: self.config["Paths"]["MugenRoot"] = self.base_path
+        if hasattr(self, 'select_def_path') and self.select_def_path:
+            self.config["Paths"]["SelectDef"] = self.select_def_path
         
         try:
             with open(target, 'w') as f: self.config.write(f)
         except Exception as e: messagebox.showerror("Config Error", str(e))
+
+    def find_select_def_from_system(self, system_def_path):
+        """Parse system.def to find the actual select.def path."""
+        system_dir = os.path.dirname(system_def_path)
+        select_path = None
+        
+        try:
+            with open(system_def_path, 'r', encoding='utf-8', errors='ignore') as f:
+                in_files = False
+                for line in f:
+                    stripped = line.strip()
+                    # Check for [Files] section
+                    if stripped.lower().startswith('[files]'):
+                        in_files = True
+                        continue
+                    if stripped.startswith('[') and in_files:
+                        break
+                    if in_files and '=' in stripped:
+                        # Remove comments
+                        if ';' in stripped:
+                            stripped = stripped.split(';')[0].strip()
+                        key, value = stripped.split('=', 1)
+                        key = key.strip().lower()
+                        value = value.strip().strip('"')
+                        if key == 'select':
+                            # Path is relative to game root, not system.def location
+                            select_path = value
+                            break
+        except Exception as e:
+            print(f"Error parsing system.def: {e}")
+        
+        return select_path
 
     def ask_system_def(self):
         msg = "Please locate the 'system.def' file for your Mugen/Ikemen game.\nThis is usually in the 'data' folder."
@@ -437,15 +478,40 @@ class GOSelect(ctk.CTk):
             data_dir = os.path.dirname(path)
             base = os.path.dirname(data_dir)
             self.base_path = base
+            
+            # Try to find select.def path from system.def
+            select_rel_path = self.find_select_def_from_system(path)
+            
+            if select_rel_path:
+                # Path in system.def is relative to game root
+                self.select_def_path = os.path.join(self.base_path, select_rel_path)
+                # Update data_dir to be wherever select.def is
+                self.data_dir = os.path.dirname(self.select_def_path)
+            else:
+                # Fallback to default location
+                self.update_paths()
+            
             self.save_config()
-            self.update_paths()
+            
             if os.path.exists(self.select_def_path):
                 self.find_grid_dimensions()
                 self.load_data()
             else:
-                messagebox.showerror("Error", "Could not find select.def in that location.")
+                # Ask user to locate select.def manually
+                messagebox.showwarning("Warning", f"Could not find select.def at:\n{self.select_def_path}\n\nPlease locate it manually.")
+                select_path = filedialog.askopenfilename(title="Select select.def", filetypes=[("Definition", "*.def"), ("All Files", "*.*")])
+                if select_path and os.path.exists(select_path):
+                    self.select_def_path = select_path
+                    self.data_dir = os.path.dirname(select_path)
+                    self.save_config()
+                    self.find_grid_dimensions()
+                    self.load_data()
+                else:
+                    messagebox.showerror("Error", "Could not find select.def. Exiting.")
+                    self.destroy()
+                    sys.exit()
         else:
-             if not self.base_path or not os.path.exists(os.path.join(self.base_path, "data", "select.def")):
+             if not self.base_path or not os.path.exists(self.select_def_path):
                  messagebox.showerror("Error", "Setup cancelled or invalid. Exiting.")
                  self.destroy()
                  sys.exit()
