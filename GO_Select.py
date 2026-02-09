@@ -40,6 +40,146 @@ def build_params_string(kv_dict, positional_list, managed_keys=[]):
             parts.append(f"{k}={v}")
     return ", ".join(parts)
 
+class SlotGroupDialog(ctk.CTkToplevel):
+    """Dialog for managing a slot group with multiple characters."""
+    def __init__(self, parent, slot_data, available_chars, chars_dir, on_save):
+        super().__init__(parent)
+        self.title("Slot Group Editor")
+        self.geometry("800x600")
+        self.on_save = on_save
+        self.available_chars = available_chars
+        self.chars_dir = chars_dir
+        
+        self.characters = []
+        if slot_data:
+            if slot_data.get("type") == "slot":
+                self.characters = [c.copy() for c in slot_data.get("characters", [])]
+            elif slot_data.get("type") == "single" and slot_data.get("char"):
+                self.characters = [{"char": slot_data["char"], "next": "w", "previous": "s", "select": ""}]
+        
+        self.create_widgets()
+        self.transient(parent)
+        self.lift()
+        self.focus_force()
+        self.grab_set()
+
+    def create_widgets(self):
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(header, text="Slot Group Editor", font=("Arial", 18, "bold")).pack(side="left")
+        ctk.CTkLabel(header, text="Characters share same grid position. First = primary.", text_color="gray").pack(side="left", padx=20)
+        
+        main = ctk.CTkFrame(self)
+        main.pack(fill="both", expand=True, padx=10, pady=5)
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_columnconfigure(1, weight=2)
+        main.grid_rowconfigure(0, weight=1)
+        
+        left_frame = ctk.CTkFrame(main)
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        ctk.CTkLabel(left_frame, text="Available Characters", font=("Arial", 12, "bold")).pack(pady=5)
+        self.char_search = ctk.CTkEntry(left_frame, placeholder_text="Search...")
+        self.char_search.pack(fill="x", padx=5, pady=5)
+        self.char_search.bind("<KeyRelease>", self.filter_chars)
+        self.char_listbox = ctk.CTkScrollableFrame(left_frame)
+        self.char_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+        self.populate_char_list()
+        
+        right_frame = ctk.CTkFrame(main)
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
+        ctk.CTkLabel(right_frame, text="Characters in Slot (First = Primary)", font=("Arial", 12, "bold")).pack(pady=5)
+        self.slot_list_frame = ctk.CTkScrollableFrame(right_frame)
+        self.slot_list_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        self.refresh_slot_list()
+        
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=10, pady=10)
+        ctk.CTkButton(btn_frame, text="Cancel", command=self.destroy, fg_color="gray").pack(side="right", padx=5)
+        ctk.CTkButton(btn_frame, text="Save Slot Group", command=self.save, fg_color="green").pack(side="right", padx=5)
+        ctk.CTkButton(btn_frame, text="Convert to Single", command=self.convert_to_single).pack(side="left", padx=5)
+
+    def populate_char_list(self, filter_text=""):
+        for w in self.char_listbox.winfo_children(): w.destroy()
+        filter_text = filter_text.lower()
+        for char in self.available_chars:
+            if filter_text and filter_text not in char.lower(): continue
+            ctk.CTkButton(self.char_listbox, text=char, anchor="w", command=lambda c=char: self.add_char_to_slot(c)).pack(fill="x", pady=1)
+
+    def filter_chars(self, event=None):
+        self.populate_char_list(self.char_search.get())
+
+    def add_char_to_slot(self, char_name):
+        self.characters.append({"char": char_name, "next": "w", "previous": "s", "select": ""})
+        self.refresh_slot_list()
+
+    def refresh_slot_list(self):
+        for w in self.slot_list_frame.winfo_children(): w.destroy()
+        for i, char_data in enumerate(self.characters):
+            frame = ctk.CTkFrame(self.slot_list_frame)
+            frame.pack(fill="x", pady=2)
+            frame.grid_columnconfigure(1, weight=1)
+            
+            pos_text = "★ " if i == 0 else f"{i+1}. "
+            pos_color = "#FFD700" if i == 0 else "white"
+            ctk.CTkLabel(frame, text=pos_text, text_color=pos_color, width=30).grid(row=0, column=0, rowspan=2)
+            ctk.CTkLabel(frame, text=char_data["char"], font=("Arial", 11, "bold"), anchor="w").grid(row=0, column=1, sticky="w", padx=5)
+            
+            params_frame = ctk.CTkFrame(frame, fg_color="transparent")
+            params_frame.grid(row=1, column=1, sticky="w", padx=5)
+            
+            ctk.CTkLabel(params_frame, text="Next:", text_color="gray").pack(side="left")
+            next_entry = ctk.CTkEntry(params_frame, width=50)
+            next_entry.insert(0, char_data.get("next", "w"))
+            next_entry.pack(side="left", padx=2)
+            next_entry.bind("<KeyRelease>", lambda e, idx=i, ent=next_entry: self.update_char_param(idx, "next", ent.get()))
+            
+            ctk.CTkLabel(params_frame, text="Prev:", text_color="gray").pack(side="left", padx=(10,0))
+            prev_entry = ctk.CTkEntry(params_frame, width=50)
+            prev_entry.insert(0, char_data.get("previous", "s"))
+            prev_entry.pack(side="left", padx=2)
+            prev_entry.bind("<KeyRelease>", lambda e, idx=i, ent=prev_entry: self.update_char_param(idx, "previous", ent.get()))
+            
+            ctk.CTkLabel(params_frame, text="Select:", text_color="gray").pack(side="left", padx=(10,0))
+            select_entry = ctk.CTkEntry(params_frame, width=60)
+            select_entry.insert(0, char_data.get("select", ""))
+            select_entry.pack(side="left", padx=2)
+            select_entry.bind("<KeyRelease>", lambda e, idx=i, ent=select_entry: self.update_char_param(idx, "select", ent.get()))
+            
+            btn_frame2 = ctk.CTkFrame(frame, fg_color="transparent")
+            btn_frame2.grid(row=0, column=2, rowspan=2, padx=5)
+            if i > 0:
+                ctk.CTkButton(btn_frame2, text="↑", width=25, command=lambda idx=i: self.move_char(idx, -1)).pack(side="left", padx=1)
+            if i < len(self.characters) - 1:
+                ctk.CTkButton(btn_frame2, text="↓", width=25, command=lambda idx=i: self.move_char(idx, 1)).pack(side="left", padx=1)
+            ctk.CTkButton(btn_frame2, text="✕", width=25, fg_color="red", command=lambda idx=i: self.remove_char(idx)).pack(side="left", padx=1)
+
+    def update_char_param(self, index, key, value):
+        if 0 <= index < len(self.characters): self.characters[index][key] = value
+
+    def move_char(self, index, direction):
+        new_index = index + direction
+        if 0 <= new_index < len(self.characters):
+            self.characters[index], self.characters[new_index] = self.characters[new_index], self.characters[index]
+            self.refresh_slot_list()
+
+    def remove_char(self, index):
+        if 0 <= index < len(self.characters):
+            del self.characters[index]
+            self.refresh_slot_list()
+
+    def convert_to_single(self):
+        if self.characters:
+            self.on_save({"type": "single", "char": self.characters[0]["char"], "params": ""})
+        self.destroy()
+
+    def save(self):
+        if not self.characters:
+            messagebox.showerror("Error", "Slot group must have at least one character")
+            return
+        self.on_save({"type": "slot", "characters": self.characters})
+        self.destroy()
+
+
 class StagePropertiesDialog(ctk.CTkToplevel):
     def __init__(self, parent, stage_line, on_save):
         super().__init__(parent)
@@ -670,10 +810,12 @@ class GOSelect(ctk.CTk):
         pass
 
     def load_data(self):
-        self.slots = []
+        self.slots = []  # Each slot is {"type": "single", "char": "", "params": ""} or {"type": "slot", "characters": [...]}
         self.extra_stages = []
         self.sections = {"pre":[], "chars":[], "mid":[], "stages":[], "post":[]}
         current_section = "pre"
+        in_slot_block = False
+        slot_block_chars = []
         
         try:
             with open(self.select_def_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -695,11 +837,39 @@ class GOSelect(ctk.CTk):
                     if current_section == "pre": self.sections["pre"].append(line)
                     elif current_section == "chars":
                         content = line.split(';', 1)[0].strip()
-                        if content:
-                            parts = content.split(',', 1)
-                            char = parts[0].strip()
-                            params = parts[1].strip() if len(parts)>1 else ""
-                            self.slots.append({"char": char, "params": params})
+                        if not content: continue
+                        
+                        # Check for slot block start
+                        if content.lower().startswith("slot") and "=" in content and "{" in content:
+                            in_slot_block = True
+                            slot_block_chars = []
+                            # Check if there's content after { on the same line
+                            after_brace = content.split("{", 1)[1].strip() if "{" in content else ""
+                            if after_brace and after_brace != "}":
+                                self._parse_slot_char(after_brace, slot_block_chars)
+                            continue
+                        
+                        # Inside slot block
+                        if in_slot_block:
+                            if "}" in content:
+                                # End of slot block
+                                before_brace = content.split("}")[0].strip()
+                                if before_brace:
+                                    self._parse_slot_char(before_brace, slot_block_chars)
+                                if slot_block_chars:
+                                    self.slots.append({"type": "slot", "characters": slot_block_chars})
+                                in_slot_block = False
+                                slot_block_chars = []
+                            else:
+                                self._parse_slot_char(content, slot_block_chars)
+                            continue
+                        
+                        # Regular single character
+                        parts = content.split(',', 1)
+                        char = parts[0].strip()
+                        params = parts[1].strip() if len(parts)>1 else ""
+                        self.slots.append({"type": "single", "char": char, "params": params})
+                        
                     elif current_section == "stages":
                         content = line.split(';', 1)[0].strip()
                         if content: self.extra_stages.append(content)
@@ -708,18 +878,49 @@ class GOSelect(ctk.CTk):
             self.refresh_grid()
             self.refresh_extra_stages()
         except Exception as e: messagebox.showerror("Error", f"Load failed: {e}")
+    
+    def _parse_slot_char(self, content, slot_block_chars):
+        """Parse a character line inside a slot block."""
+        params_dict, positional = parse_params_string(content)
+        char_name = positional[0] if positional else ""
+        if char_name:
+            slot_block_chars.append({
+                "char": char_name,
+                "next": params_dict.get("next", "w"),
+                "previous": params_dict.get("previous", "s"),
+                "select": params_dict.get("select", "")
+            })
 
     def refresh_grid(self):
         for w in self.grid_frame.winfo_children(): w.destroy()
         for i in range(self.rows * self.cols):
             r, c = i // self.cols, i % self.cols
-            char = self.slots[i]["char"] if i < len(self.slots) else "Empty"
-            if not char: char = "Empty"
-            fg = "transparent"
-            if char.lower() == "randomselect": fg = "#442244"
-            elif char != "Empty": fg = "#224422"
             
-            btn = ctk.CTkButton(self.grid_frame, text=char[:8], width=60, height=30, fg_color=fg, border_width=1, border_color="gray", command=lambda idx=i: self.select_slot(idx))
+            if i < len(self.slots):
+                slot = self.slots[i]
+                if slot.get("type") == "slot":
+                    # Slot group - show primary character with indicator
+                    chars = slot.get("characters", [])
+                    char = chars[0]["char"] if chars else "Empty"
+                    char_count = len(chars)
+                    display_text = f"{char[:6]}[{char_count}]" if char else f"Slot[{char_count}]"
+                    fg = "#664422"  # Orange-ish for slot groups
+                    border_color = "#FFD700"  # Gold border
+                else:
+                    # Single character
+                    char = slot.get("char", "")
+                    if not char: char = "Empty"
+                    display_text = char[:8]
+                    fg = "transparent"
+                    if char.lower() == "randomselect": fg = "#442244"
+                    elif char != "Empty": fg = "#224422"
+                    border_color = "gray"
+            else:
+                display_text = "Empty"
+                fg = "transparent"
+                border_color = "gray"
+            
+            btn = ctk.CTkButton(self.grid_frame, text=display_text, width=60, height=30, fg_color=fg, border_width=2, border_color=border_color, command=lambda idx=i: self.select_slot(idx))
             btn.grid(row=r, column=c, padx=1, pady=1)
             btn.bind("<Button-3>", lambda e, idx=i: self.show_context_menu(e, idx))
 
@@ -757,33 +958,72 @@ class GOSelect(ctk.CTk):
 
     def select_slot(self, index):
         self.selected_slot_index = index
-        slot = self.slots[index] if index < len(self.slots) else {"char": "", "params": ""}
-        self.status_bar.configure(text=f"Slot {index}: {slot['char']}")
-        self.param_entry.delete(0, "end")
-        self.param_entry.insert(0, slot["params"])
+        if index < len(self.slots):
+            slot = self.slots[index]
+            if slot.get("type") == "slot":
+                chars = slot.get("characters", [])
+                char_names = [c["char"] for c in chars]
+                self.status_bar.configure(text=f"Slot {index}: Slot Group [{len(chars)}] - {', '.join(char_names[:3])}...")
+                self.param_entry.delete(0, "end")
+            else:
+                char = slot.get("char", "")
+                self.status_bar.configure(text=f"Slot {index}: {char}")
+                self.param_entry.delete(0, "end")
+                self.param_entry.insert(0, slot.get("params", ""))
+        else:
+            self.status_bar.configure(text=f"Slot {index}: Empty")
+            self.param_entry.delete(0, "end")
 
     def assign_char_to_slot(self, char_name):
         if self.selected_slot_index is None: return
-        while len(self.slots) <= self.selected_slot_index: self.slots.append({"char": "empty", "params": ""})
-        self.slots[self.selected_slot_index]["char"] = char_name
+        while len(self.slots) <= self.selected_slot_index: 
+            self.slots.append({"type": "single", "char": "empty", "params": ""})
+        self.slots[self.selected_slot_index] = {"type": "single", "char": char_name, "params": ""}
         self.refresh_grid()
         self.select_slot(self.selected_slot_index)
 
     def update_current_slot_params(self):
         if self.selected_slot_index is None: return
         if self.selected_slot_index < len(self.slots):
-            self.slots[self.selected_slot_index]["params"] = self.param_entry.get()
-            messagebox.showinfo("Success", "Updated")
+            slot = self.slots[self.selected_slot_index]
+            if slot.get("type") != "slot":  # Only for single chars
+                slot["params"] = self.param_entry.get()
+                messagebox.showinfo("Success", "Updated")
 
     def show_context_menu(self, event, index):
         self.select_slot(index)
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="Properties...", command=lambda: self.open_properties(index))
+        
+        slot = self.slots[index] if index < len(self.slots) else None
+        is_slot_group = slot and slot.get("type") == "slot"
+        
+        if is_slot_group:
+            menu.add_command(label="Edit Slot Group...", command=lambda: self.open_slot_group_editor(index))
+        else:
+            menu.add_command(label="Properties...", command=lambda: self.open_properties(index))
+            menu.add_command(label="Create Slot Group...", command=lambda: self.open_slot_group_editor(index))
+        
         menu.add_separator()
         menu.add_command(label="Set Random", command=lambda: self.assign_char_to_slot("randomselect"))
         menu.add_command(label="Set Empty", command=lambda: self.assign_char_to_slot("empty"))
-        menu.add_command(label="Clear Params", command=lambda: self.update_current_slot_params())
+        if not is_slot_group:
+            menu.add_command(label="Clear Params", command=lambda: self.update_current_slot_params())
         menu.tk_popup(event.x_root, event.y_root)
+
+    def open_slot_group_editor(self, index):
+        """Open the slot group editor dialog."""
+        while len(self.slots) <= index:
+            self.slots.append({"type": "single", "char": "empty", "params": ""})
+        
+        slot = self.slots[index]
+        SlotGroupDialog(self, slot, self.available_chars, self.chars_dir, 
+                       lambda res: self.on_slot_group_save(index, res))
+
+    def on_slot_group_save(self, index, result):
+        """Handle saving from slot group editor."""
+        self.slots[index] = result
+        self.refresh_grid()
+        self.select_slot(index)
 
     def open_properties(self, index):
         if index >= len(self.slots): return
@@ -819,11 +1059,27 @@ class GOSelect(ctk.CTk):
         
         with open(self.select_def_path, 'w', encoding='utf-8') as f:
             for l in self.sections["pre"]: f.write(l)
+            
             for s in self.slots:
-                c = s["char"] if s["char"] else "empty"
-                line = c
-                if s["params"]: line += f", {s['params']}"
-                f.write(line+"\n")
+                if s.get("type") == "slot":
+                    # Slot group - write as slot = { }
+                    chars = s.get("characters", [])
+                    if chars:
+                        f.write("slot = {\n")
+                        for char_data in chars:
+                            char_name = char_data.get("char", "")
+                            parts = [char_name]
+                            if char_data.get("next"): parts.append(f"next = {char_data['next']}")
+                            if char_data.get("previous"): parts.append(f"previous = {char_data['previous']}")
+                            if char_data.get("select"): parts.append(f"select = {char_data['select']}")
+                            f.write("  " + ", ".join(parts) + "\n")
+                        f.write("}\n")
+                else:
+                    # Single character
+                    c = s.get("char", "") or "empty"
+                    line = c
+                    if s.get("params"): line += f", {s['params']}"
+                    f.write(line + "\n")
             
             for l in self.sections["mid"]: f.write(l) 
             for s in self.extra_stages: f.write(s+"\n")
